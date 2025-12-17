@@ -4,8 +4,8 @@ from datetime import date
 from pathlib import Path
 from typing import Dict
 
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "nutrition.db"
+DB_PATH = Path("/data/nutrition.db")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 print("USING DATABASE:", DB_PATH)
 
