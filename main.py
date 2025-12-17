@@ -5,21 +5,31 @@ from datetime import date
 from pathlib import Path
 from typing import Dict
 
-DB_PATH = Path("/data/nutrition.db")
+DB_LOCATIONS = [
+    Path("/data/nutrition.db"),    
+    Path("/tmp/nutrition.db"),       
+    Path("./nutrition.db"),          
+]
 
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-if not DB_PATH.exists():
-    DB_PATH.touch()
-    os.chmod(DB_PATH, 0o666)
-
-if DB_PATH.exists():
+DB_PATH = None
+for location in DB_LOCATIONS:
     try:
-        os.chmod(DB_PATH, 0o666)
-    except Exception as e:
-        print(f"Warning: Could not set permissions on {DB_PATH}: {e}")
+        
+        location.parent.mkdir(parents=True, exist_ok=True)
+        
+        test_file = location.parent / ".write_test"
+        test_file.touch()
+        test_file.unlink()
 
-print("USING DATABASE:", DB_PATH)
+        DB_PATH = location
+        print(f"Using writable database location: {DB_PATH}")
+        break
+    except (OSError, PermissionError) as e:
+        print(f"✗ Cannot write to {location}: {e}")
+        continue
+
+if DB_PATH is None:
+    raise RuntimeError("No writable location found for database!")
 
 mcp = FastMCP("Nutrition & Health Tracker")
 
@@ -29,63 +39,56 @@ def get_db():
     return conn
 
 def init_db():
-    try:
-        with get_db() as db:
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS foods (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE,
-                    calories INTEGER,
-                    protein REAL,
-                    carbs REAL,
-                    fat REAL
-                )
-                """
+    with get_db() as db:
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS foods (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                calories INTEGER,
+                protein REAL,
+                carbs REAL,
+                fat REAL
             )
+            """
+        )
 
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    food_id INTEGER,
-                    quantity REAL,
-                    log_date TEXT,
-                    meal TEXT,
-                    FOREIGN KEY(food_id) REFERENCES foods(id)
-                )
-                """
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                food_id INTEGER,
+                quantity REAL,
+                log_date TEXT,
+                meal TEXT,
+                FOREIGN KEY(food_id) REFERENCES foods(id)
             )
+            """
+        )
 
-            cur = db.execute("PRAGMA table_info(logs)")
-            cols = [r[1] if isinstance(r, tuple) else r["name"] for r in cur.fetchall()]
-            if "meal" not in cols:
-                try:
-                    db.execute("ALTER TABLE logs ADD COLUMN meal TEXT")
-                except Exception:
-                    pass
+        cur = db.execute("PRAGMA table_info(logs)")
+        cols = [r[1] if isinstance(r, tuple) else r["name"] for r in cur.fetchall()]
+        if "meal" not in cols:
+            try:
+                db.execute("ALTER TABLE logs ADD COLUMN meal TEXT")
+            except Exception:
+                pass
 
-            db.execute(
-                """
-                CREATE TABLE IF NOT EXISTS goals (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    daily_calories INTEGER
-                )
-                """
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS goals (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                daily_calories INTEGER
             )
+            """
+        )
 
-            db.execute(
-                "INSERT OR IGNORE INTO goals (id, daily_calories) VALUES (1, 2000)"
-            )
+        db.execute(
+            "INSERT OR IGNORE INTO goals (id, daily_calories) VALUES (1, 2000)"
+        )
 
-            db.commit()
-            print("Database initialized successfully")
-    except sqlite3.OperationalError as e:
-        if "readonly" in str(e):
-            print(f"ERROR: Database is read-only. Please check permissions on {DB_PATH}")
-            print(f"Current file permissions: {oct(os.stat(DB_PATH).st_mode)[-3:]}")
-            raise PermissionError(f"Database {DB_PATH} is not writable. Contact your deployment administrator.")
-        raise
+        db.commit()
+        print(f"✓ Database initialized successfully at {DB_PATH}")
 
 init_db()
 
